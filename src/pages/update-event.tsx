@@ -21,6 +21,7 @@ export default function UpdateEvent() {
       await updateEvent.mutateAsync({
         id: eventId,
         ...data,
+        date: new Date(data.date).toISOString(),
       })
       toast.success('Event updated successfully')
       navigate('/events')

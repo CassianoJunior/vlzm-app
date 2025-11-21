@@ -19,6 +19,7 @@ export default function CreateEvent() {
     try {
       await createEvent.mutateAsync({
         ...data,
+        date: new Date(data.date).toISOString(),
         created_by: user.id,
       })
       toast.success('Event created successfully')
