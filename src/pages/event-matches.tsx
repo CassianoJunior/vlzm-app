@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { toast } from 'sonner'
-import { X, Crown, ArrowLeft, Trophy, Users, History, PlayCircle, Plus, Minus, Wand2, Maximize2, Minimize2, Timer } from 'lucide-react'
+import { X, Crown, ArrowLeft, Trophy, Users, History, PlayCircle, Plus, Minus, Wand2, Maximize2, Minimize2, Timer, ChevronUp, ChevronDown, GripVertical } from 'lucide-react'
 import { useAuth } from '@/contexts/auth-context'
 import { useEvent, useUpdateEvent, useCompletedEvents } from '@/hooks/use-events'
 import { useEventPlayers } from '@/hooks/use-event-players'
@@ -128,6 +128,16 @@ export default function EventMatches() {
   const handleRemoveTeam = (index: number) => {
     const newTeams = [...selectedTeams]
     newTeams.splice(index, 1)
+    setSelectedTeams(newTeams)
+  }
+
+  const handleMoveTeam = (index: number, direction: 'up' | 'down') => {
+    const newIndex = direction === 'up' ? index - 1 : index + 1
+    if (newIndex < 0 || newIndex >= selectedTeams.length) return
+    
+    const newTeams = [...selectedTeams]
+    const [movedTeam] = newTeams.splice(index, 1)
+    newTeams.splice(newIndex, 0, movedTeam)
     setSelectedTeams(newTeams)
   }
 
@@ -498,53 +508,89 @@ export default function EventMatches() {
                     <Button onClick={handleAddTeam} variant="outline" size="sm">+ Add Team</Button>
                   </div>
                 </CardHeader>
-                <CardContent className="space-y-4">
+                <CardContent className="space-y-3">
                   {selectedTeams.map((team, idx) => (
                     <div key={idx} className="flex gap-2 items-center bg-muted/30 p-3 rounded-lg border">
-                      <span className="font-mono text-muted-foreground w-6">{idx + 1}.</span>
-                      <div className="flex-1 grid grid-cols-2 gap-2">
-                        <Select 
-                          value={team.p1}
-                          onValueChange={(v) => handleTeamChange(idx, 'p1', v)}
+                      {/* Reorder controls - mobile friendly with 44px touch targets */}
+                      <div className="flex flex-col gap-0.5">
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-11 w-11 touch-manipulation"
+                          onClick={() => handleMoveTeam(idx, 'up')}
+                          disabled={idx === 0}
+                          aria-label="Move team up"
                         >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Player 1" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {checkedInPlayers.map(p => (
-                              <SelectItem 
-                                key={`p1-${idx}-${p.id}`} 
-                                value={p.id} 
-                                disabled={team.p2 === p.id || selectedTeams.some((t, i) => i !== idx && (t.p1 === p.id || t.p2 === p.id))}
-                              >
-                                {p.surname}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-
-                        <Select 
-                          value={team.p2}
-                          onValueChange={(v) => handleTeamChange(idx, 'p2', v)}
+                          <ChevronUp className="h-5 w-5" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-11 w-11 touch-manipulation"
+                          onClick={() => handleMoveTeam(idx, 'down')}
+                          disabled={idx === selectedTeams.length - 1}
+                          aria-label="Move team down"
                         >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Player 2" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {checkedInPlayers.map(p => (
-                              <SelectItem 
-                                key={`p2-${idx}-${p.id}`} 
-                                value={p.id} 
-                                disabled={team.p1 === p.id || selectedTeams.some((t, i) => i !== idx && (t.p1 === p.id || t.p2 === p.id))}
-                              >
-                                {p.surname}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          <ChevronDown className="h-5 w-5" />
+                        </Button>
                       </div>
-                      <Button variant="ghost" size="icon" onClick={() => handleRemoveTeam(idx)} className="text-destructive hover:text-destructive hover:bg-destructive/10">
-                        <X className="h-4 w-4" />
+                      
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2">
+                          <GripVertical className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <span className="font-mono text-muted-foreground text-sm">Team {idx + 1}</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Select 
+                            value={team.p1}
+                            onValueChange={(v) => handleTeamChange(idx, 'p1', v)}
+                          >
+                            <SelectTrigger className="min-h-11">
+                              <SelectValue placeholder="Player 1" />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-60">
+                              {checkedInPlayers.map(p => (
+                                <SelectItem 
+                                  key={`p1-${idx}-${p.id}`} 
+                                  value={p.id} 
+                                  disabled={team.p2 === p.id || selectedTeams.some((t, i) => i !== idx && (t.p1 === p.id || t.p2 === p.id))}
+                                >
+                                  {p.surname}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+
+                          <Select 
+                            value={team.p2}
+                            onValueChange={(v) => handleTeamChange(idx, 'p2', v)}
+                          >
+                            <SelectTrigger className="min-h-11">
+                              <SelectValue placeholder="Player 2" />
+                            </SelectTrigger>
+                            <SelectContent className="max-h-60">
+                              {checkedInPlayers.map(p => (
+                                <SelectItem 
+                                  key={`p2-${idx}-${p.id}`} 
+                                  value={p.id} 
+                                  disabled={team.p1 === p.id || selectedTeams.some((t, i) => i !== idx && (t.p1 === p.id || t.p2 === p.id))}
+                                >
+                                  {p.surname}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => handleRemoveTeam(idx)} 
+                        className="h-11 w-11 text-destructive hover:text-destructive hover:bg-destructive/10 touch-manipulation shrink-0"
+                        aria-label="Remove team"
+                      >
+                        <X className="h-5 w-5" />
                       </Button>
                     </div>
                   ))}
