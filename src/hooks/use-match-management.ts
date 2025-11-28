@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { useQueryClient, useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
-import { QueueManager, createPlayer, type Team } from '@/utils/queue-management/queue-management'
+import { QueueManager, createPlayer, createTeam, type Team } from '@/utils/queue-management/queue-management'
 import type { Event, Profile } from '@/types/database'
 
 export interface MatchManagementState {
@@ -216,6 +216,64 @@ export function useMatchManagement(event: Event) {
     }
   }, [updateMatchState, event?.status])
 
+  const addTeamsToQueue = useCallback(async (teamProfiles: Array<{ p1: Profile; p2: Profile }>) => {
+    if (event.status === 'completed') {
+      toast.error('Cannot modify completed event')
+      return
+    }
+
+    const manager = queueManagerRef.current
+    const snapshot = manager.saveState()
+
+    try {
+      // Ensure all players have IDs in the map
+      const allProfiles = teamProfiles.flatMap(t => [t.p1, t.p2])
+      const newMap = ensurePlayerMapping(allProfiles)
+
+      // Create Team objects
+      const teams: Team[] = teamProfiles.map(t => {
+        const player1 = createPlayer(newMap[t.p1.id], t.p1.surname)
+        const player2 = createPlayer(newMap[t.p2.id], t.p2.surname)
+        return createTeam(player1, player2)
+      })
+
+      manager.addTeams(teams)
+      setManagerVersion(v => v + 1)
+
+      await saveState(manager, newMap)
+      toast.success(`Added ${teams.length} team(s) to queue`)
+    } catch (error) {
+      console.error('Failed to add teams:', error)
+      manager.loadState(snapshot)
+      setManagerVersion(v => v + 1)
+      toast.error(error instanceof Error ? error.message : 'Failed to add teams')
+      throw error
+    }
+  }, [event?.status, ensurePlayerMapping, saveState])
+
+  const reorderQueue = useCallback(async (fromIndex: number, toIndex: number) => {
+    if (event.status === 'completed') {
+      toast.error('Cannot modify completed event')
+      return
+    }
+
+    const manager = queueManagerRef.current
+    const snapshot = manager.saveState()
+
+    try {
+      manager.reorderTeamInQueue(fromIndex, toIndex)
+      setManagerVersion(v => v + 1)
+
+      await saveState(manager, playerMap)
+    } catch (error) {
+      console.error('Failed to reorder queue:', error)
+      manager.loadState(snapshot)
+      setManagerVersion(v => v + 1)
+      toast.error(error instanceof Error ? error.message : 'Failed to reorder queue')
+      throw error
+    }
+  }, [event?.status, playerMap, saveState])
+
   return {
     queueManager: queueManagerRef.current,
     managerVersion,
@@ -228,6 +286,8 @@ export function useMatchManagement(event: Event) {
     recordResult,
     updateScore,
     resetQueue,
+    addTeamsToQueue,
+    reorderQueue,
     playerMap,
     loadError,
   }

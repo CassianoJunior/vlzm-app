@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { toast } from 'sonner'
-import { X, Crown, ArrowLeft, Trophy, Users, History, PlayCircle, Plus, Minus, Wand2, Maximize2, Minimize2, Timer, ChevronUp, ChevronDown, GripVertical } from 'lucide-react'
+import { X, Crown, ArrowLeft, Trophy, Users, History, PlayCircle, Plus, Minus, Wand2, Maximize2, Minimize2, Timer, ChevronUp, ChevronDown, GripVertical, UserPlus } from 'lucide-react'
 import { useAuth } from '@/contexts/auth-context'
 import { useEvent, useUpdateEvent, useCompletedEvents } from '@/hooks/use-events'
 import { useEventPlayers } from '@/hooks/use-event-players'
@@ -66,6 +66,9 @@ export default function EventMatches() {
   const [isGenerateOpen, setIsGenerateOpen] = useState(false)
   const [generateType, setGenerateType] = useState<'MM' | 'MF' | 'FF'>('MM')
   const [fullscreenCourtId, setFullscreenCourtId] = useState<number | null>(null)
+  const [isAddTeamOpen, setIsAddTeamOpen] = useState(false)
+  const [newTeamP1, setNewTeamP1] = useState('')
+  const [newTeamP2, setNewTeamP2] = useState('')
   
   // Match Management Hook
   const {
@@ -78,6 +81,8 @@ export default function EventMatches() {
     recordResult,
     updateScore,
     resetQueue,
+    addTeamsToQueue,
+    reorderQueue,
     playerMap,
     loadError
   } = useMatchManagement(event!)
@@ -91,6 +96,44 @@ export default function EventMatches() {
       .map(ep => ep.player!)
       .filter(Boolean)
   }, [eventPlayers])
+
+  // Players currently in use (on court or in queue) - for Add Team dialog filtering
+  const playersInUse = useMemo(() => {
+    if (phase !== 'active') return new Set<string>()
+    
+    const usedIds = new Set<string>()
+    
+    // Create reverse map: numeric id -> profile uuid
+    const reverseMap = new Map<number, string>()
+    Object.entries(playerMap).forEach(([uuid, numId]) => {
+      reverseMap.set(numId, uuid)
+    })
+    
+    // Add players from courts
+    queueManager.getCourts().forEach(court => {
+      if (court.currentMatch) {
+        const match = court.currentMatch
+        const p1Id = reverseMap.get(match.team1.player1.id)
+        const p2Id = reverseMap.get(match.team1.player2.id)
+        const p3Id = reverseMap.get(match.team2.player1.id)
+        const p4Id = reverseMap.get(match.team2.player2.id)
+        if (p1Id) usedIds.add(p1Id)
+        if (p2Id) usedIds.add(p2Id)
+        if (p3Id) usedIds.add(p3Id)
+        if (p4Id) usedIds.add(p4Id)
+      }
+    })
+    
+    // Add players from queue
+    queueManager.getCurrentState().queue.forEach(team => {
+      const p1Id = reverseMap.get(team.player1.id)
+      const p2Id = reverseMap.get(team.player2.id)
+      if (p1Id) usedIds.add(p1Id)
+      if (p2Id) usedIds.add(p2Id)
+    })
+    
+    return usedIds
+  }, [phase, playerMap, queueManager])
 
   // Effect to sync phase with event state
   useEffect(() => {
@@ -416,6 +459,43 @@ export default function EventMatches() {
       await recordResult(courtId, scoreMap)
       setConfirmDialog(null)
       toast.success('Match recorded')
+    } catch (error) {
+      // Error handled in hook
+    }
+  }
+
+  const handleAddTeamToQueue = async () => {
+    if (!newTeamP1 || !newTeamP2) {
+      toast.error('Please select both players')
+      return
+    }
+    if (newTeamP1 === newTeamP2) {
+      toast.error('A player cannot be in a team with themselves')
+      return
+    }
+
+    const p1Profile = checkedInPlayers.find(p => p.id === newTeamP1)
+    const p2Profile = checkedInPlayers.find(p => p.id === newTeamP2)
+
+    if (!p1Profile || !p2Profile) {
+      toast.error('Player not found')
+      return
+    }
+
+    try {
+      await addTeamsToQueue([{ p1: p1Profile, p2: p2Profile }])
+      setIsAddTeamOpen(false)
+      setNewTeamP1('')
+      setNewTeamP2('')
+    } catch (error) {
+      // Error handled in hook
+    }
+  }
+
+  const handleReorderQueue = async (fromIndex: number, direction: 'up' | 'down') => {
+    const toIndex = direction === 'up' ? fromIndex - 1 : fromIndex + 1
+    try {
+      await reorderQueue(fromIndex, toIndex)
     } catch (error) {
       // Error handled in hook
     }
@@ -789,12 +869,65 @@ export default function EventMatches() {
                 <CardTitle className="text-lg font-semibold flex items-center gap-2">
                   <Users className="h-5 w-5 text-primary" /> Queue
                 </CardTitle>
-                <Badge variant="outline">{queueManager.getCurrentState().queue.length} teams waiting</Badge>
+                <div className="flex items-center gap-2">
+                  {isManager && (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => setIsAddTeamOpen(true)}
+                      disabled={isSaving}
+                      className="gap-1"
+                    >
+                      <UserPlus className="h-4 w-4" /> Add Team
+                    </Button>
+                  )}
+                  <Badge variant="outline">{queueManager.getCurrentState().queue.length} teams waiting</Badge>
+                </div>
               </CardHeader>
               <CardContent>
-                <div className="bg-muted/30 p-4 rounded-lg text-sm font-medium whitespace-pre-wrap font-mono border">
-                  {queueManager.beautifyQueue()}
-                </div>
+                {queueManager.getCurrentState().queue.length === 0 ? (
+                  <div className="bg-muted/30 p-4 rounded-lg text-sm text-muted-foreground text-center border">
+                    Queue is empty
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {queueManager.getCurrentState().queue.map((team, idx) => (
+                      <div 
+                        key={`${team.player1.id}-${team.player2.id}`} 
+                        className="flex items-center gap-2 bg-muted/30 p-3 rounded-lg border"
+                      >
+                        {isManager && (
+                          <div className="flex flex-col gap-0.5">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 touch-manipulation"
+                              onClick={() => handleReorderQueue(idx, 'up')}
+                              disabled={idx === 0 || isSaving}
+                              aria-label="Move team up in queue"
+                            >
+                              <ChevronUp className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 touch-manipulation"
+                              onClick={() => handleReorderQueue(idx, 'down')}
+                              disabled={idx === queueManager.getCurrentState().queue.length - 1 || isSaving}
+                              aria-label="Move team down in queue"
+                            >
+                              <ChevronDown className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <span className="font-mono text-xs text-muted-foreground mr-2">#{idx + 1}</span>
+                          <span className="font-medium">{team.player1.name} e {team.player2.name}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -1174,6 +1307,78 @@ export default function EventMatches() {
           <DialogFooter className='gap-2'>
             <Button variant="outline" onClick={() => setIsGenerateOpen(false)}>Cancel</Button>
             <Button onClick={handleGenerateTeams}>Generate</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Team to Queue Dialog */}
+      <Dialog open={isAddTeamOpen} onOpenChange={(open) => {
+        if (!open) {
+          setNewTeamP1('')
+          setNewTeamP2('')
+        }
+        setIsAddTeamOpen(open)
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Team to Queue</DialogTitle>
+            <DialogDescription>
+              Select two players to form a new team and add them to the queue.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4 space-y-4">
+            <div>
+              <Label className="mb-2 block">Player 1</Label>
+              <Select value={newTeamP1} onValueChange={setNewTeamP1}>
+                <SelectTrigger className="min-h-11">
+                  <SelectValue placeholder="Select player 1" />
+                </SelectTrigger>
+                <SelectContent className="max-h-60">
+                  {checkedInPlayers
+                    .filter(p => !playersInUse.has(p.id) && p.id !== newTeamP2)
+                    .map(p => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.surname}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div>
+              <Label className="mb-2 block">Player 2</Label>
+              <Select value={newTeamP2} onValueChange={setNewTeamP2}>
+                <SelectTrigger className="min-h-11">
+                  <SelectValue placeholder="Select player 2" />
+                </SelectTrigger>
+                <SelectContent className="max-h-60">
+                  {checkedInPlayers
+                    .filter(p => !playersInUse.has(p.id) && p.id !== newTeamP1)
+                    .map(p => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.surname}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {checkedInPlayers.filter(p => !playersInUse.has(p.id)).length < 2 && (
+              <p className="text-sm text-muted-foreground text-center">
+                Not enough available players. All checked-in players are already in the queue or on court.
+              </p>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setIsAddTeamOpen(false)}>Cancel</Button>
+            <Button 
+              onClick={handleAddTeamToQueue} 
+              disabled={!newTeamP1 || !newTeamP2 || isSaving}
+            >
+              {isSaving ? 'Adding...' : 'Add to Queue'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

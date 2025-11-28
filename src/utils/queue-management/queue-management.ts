@@ -9,10 +9,12 @@ import {
   InsufficientTeamsError,
   InvalidMatchResultError,
   NoActiveMatchError,
-  CourtNotFoundError
+  CourtNotFoundError,
+  InvalidQueueIndexError
 } from './types';
 
-export * from './types';
+// Re-export types for convenience
+export type { Player, Team, Match, MatchResult, SystemState, Court, TeamStatistics };
 
 /**
  * Queue Manager for organizing doubles matches across multiple courts
@@ -60,8 +62,7 @@ export class QueueManager {
         team1,
         team2,
         matchNumber: this.matchCounter,
-        courtId: court.id,
-        currentScores: { team1: 0, team2: 0 }
+        courtId: court.id
       };
       court.consecutiveWins = 0;
       court.currentCourtTeam = null;
@@ -75,6 +76,55 @@ export class QueueManager {
 
     console.log(`System initialized with ${teams.length} teams across ${this.state.courts.length} court(s)`);
     console.log(`Queue size: ${this.state.queue.length}`);
+  }
+
+  /**
+   * Add teams to the queue after the system has been initialized
+   * New teams are added to the end of the queue
+   * Duplicate teams (already in queue or playing on court) are silently ignored
+   * @param teams - Array of teams to add to the queue
+   * @throws {Error} if the system has not been initialized
+   */
+  addTeams(teams: Team[]): void {
+    // Check if system is initialized (at least one court has an active match)
+    const hasActiveMatch = this.state.courts.some(court => court.currentMatch !== null);
+    if (!hasActiveMatch) {
+      throw new Error('Cannot add teams: System has not been initialized. Call initialize() first.');
+    }
+
+    // Get all existing team IDs (from queue and courts)
+    const existingTeamIds = new Set<string>();
+
+    // Add teams from queue
+    for (const team of this.state.queue) {
+      existingTeamIds.add(this.getTeamKey(team));
+    }
+
+    // Add teams from courts
+    for (const court of this.state.courts) {
+      if (court.currentMatch) {
+        existingTeamIds.add(this.getTeamKey(court.currentMatch.team1));
+        existingTeamIds.add(this.getTeamKey(court.currentMatch.team2));
+      }
+    }
+
+    // Filter out duplicates and add new teams
+    const newTeams = teams.filter(team => {
+      const teamKey = this.getTeamKey(team);
+      return !existingTeamIds.has(teamKey);
+    });
+
+    // Add new teams to end of queue
+    this.state.queue.push(...newTeams);
+
+    if (newTeams.length > 0) {
+      console.log(`Added ${newTeams.length} team(s) to the queue`);
+      console.log(`Queue size: ${this.state.queue.length}`);
+    }
+
+    if (newTeams.length < teams.length) {
+      console.log(`${teams.length - newTeams.length} duplicate team(s) were ignored`);
+    }
   }
 
   /**
@@ -177,8 +227,7 @@ export class QueueManager {
         team1: nextTeam1,
         team2: nextTeam2,
         matchNumber: this.matchCounter,
-        courtId: court.id,
-        currentScores: { team1: 0, team2: 0 }
+        courtId: court.id
       };
 
       console.log(`Court ${courtId} - Next match: Team [${nextTeam1.player1.name}, ${nextTeam1.player2.name}] vs Team [${nextTeam2.player1.name}, ${nextTeam2.player2.name}]`);
@@ -201,42 +250,13 @@ export class QueueManager {
         team1: winner,
         team2: nextOpponent,
         matchNumber: this.matchCounter,
-        courtId: court.id,
-        currentScores: { team1: 0, team2: 0 }
+        courtId: court.id
       };
 
       console.log(`Court ${courtId} - Next match: Team [${winner.player1.name}, ${winner.player2.name}] vs Team [${nextOpponent.player1.name}, ${nextOpponent.player2.name}]`);
     }
 
     console.log(`Queue size: ${this.state.queue.length}\n`);
-  }
-
-  /**
-   * Update the live score for a match on a specific court
-   * @param courtId - The ID of the court
-   * @param teamIndex - 1 for team1, 2 for team2
-   * @param delta - The amount to change the score by (e.g. 1 or -1)
-   */
-  updateScore(courtId: number, teamIndex: 1 | 2, delta: number): void {
-    const court = this.state.courts.find(c => c.id === courtId);
-    
-    if (!court) {
-      throw new CourtNotFoundError(`Court ${courtId} does not exist`);
-    }
-
-    if (!court.currentMatch) {
-      throw new NoActiveMatchError(`No active match on court ${courtId}`);
-    }
-
-    if (!court.currentMatch.currentScores) {
-      court.currentMatch.currentScores = { team1: 0, team2: 0 };
-    }
-
-    if (teamIndex === 1) {
-      court.currentMatch.currentScores.team1 = Math.max(0, court.currentMatch.currentScores.team1 + delta);
-    } else {
-      court.currentMatch.currentScores.team2 = Math.max(0, court.currentMatch.currentScores.team2 + delta);
-    }
   }
 
   /**
@@ -262,6 +282,38 @@ export class QueueManager {
   getCourtMatch(courtId: number): Match | null {
     const court = this.state.courts.find(c => c.id === courtId);
     return court?.currentMatch || null;
+  }
+
+  /**
+   * Update the score for a team in an active match
+   * @param courtId - The ID of the court
+   * @param teamIndex - Which team (1 or 2)
+   * @param delta - The amount to change the score by (positive or negative)
+   * @throws {CourtNotFoundError} if court doesn't exist
+   * @throws {NoActiveMatchError} if no match is in progress on that court
+   */
+  updateScore(courtId: number, teamIndex: 1 | 2, delta: number): void {
+    const court = this.state.courts.find(c => c.id === courtId);
+    
+    if (!court) {
+      throw new CourtNotFoundError(`Court ${courtId} does not exist`);
+    }
+
+    if (!court.currentMatch) {
+      throw new NoActiveMatchError(`No active match on court ${courtId}`);
+    }
+
+    // Initialize scores if not present
+    if (!court.currentMatch.currentScores) {
+      court.currentMatch.currentScores = { team1: 0, team2: 0 };
+    }
+
+    // Update the appropriate team's score
+    if (teamIndex === 1) {
+      court.currentMatch.currentScores.team1 = Math.max(0, court.currentMatch.currentScores.team1 + delta);
+    } else {
+      court.currentMatch.currentScores.team2 = Math.max(0, court.currentMatch.currentScores.team2 + delta);
+    }
   }
 
   /**
@@ -369,6 +421,44 @@ export class QueueManager {
     return this.state.queue
       .map(team => `${team.player1.name} e ${team.player2.name}`)
       .join('\n');
+  }
+
+  /**
+   * Reorder a team within the queue by moving it from one position to another
+   * @param fromIndex - The current index of the team to move (0-based)
+   * @param toIndex - The target index to move the team to (0-based)
+   * @throws {Error} if the system has not been initialized
+   * @throws {InvalidQueueIndexError} if either index is out of bounds
+   */
+  reorderTeamInQueue(fromIndex: number, toIndex: number): void {
+    // Check if system is initialized (at least one court has an active match)
+    const hasActiveMatch = this.state.courts.some(court => court.currentMatch !== null);
+    if (!hasActiveMatch) {
+      throw new Error('Cannot reorder queue: System has not been initialized. Call initialize() first.');
+    }
+
+    const queueLength = this.state.queue.length;
+
+    // Validate fromIndex
+    if (fromIndex < 0 || fromIndex >= queueLength) {
+      throw new InvalidQueueIndexError(fromIndex, queueLength);
+    }
+
+    // Validate toIndex
+    if (toIndex < 0 || toIndex >= queueLength) {
+      throw new InvalidQueueIndexError(toIndex, queueLength);
+    }
+
+    // No-op if indices are the same
+    if (fromIndex === toIndex) {
+      return;
+    }
+
+    // Remove team from current position and insert at new position
+    const [team] = this.state.queue.splice(fromIndex, 1);
+    this.state.queue.splice(toIndex, 0, team);
+
+    console.log(`Moved team [${team.player1.name}, ${team.player2.name}] from position ${fromIndex} to ${toIndex}`);
   }
 
   /**
