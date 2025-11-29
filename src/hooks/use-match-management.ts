@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { useQueryClient, useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
-import { QueueManager, createPlayer, createTeam, type Team } from '@/utils/queue-management/queue-management'
+import { QueueManager, createPlayer, createTeam, type Team, type Score } from '@/utils/queue-management/queue-management'
 import type { Event, Profile } from '@/types/database'
 
 export interface MatchManagementState {
@@ -274,6 +274,81 @@ export function useMatchManagement(event: Event) {
     }
   }, [event?.status, playerMap, saveState])
 
+  const undo = useCallback(async () => {
+    if (event.status === 'completed') {
+      toast.error('Cannot modify completed event')
+      return false
+    }
+
+    const manager = queueManagerRef.current
+    
+    if (!manager.canUndo()) {
+      toast.info('Nothing to undo')
+      return false
+    }
+
+    try {
+      manager.undo()
+      setManagerVersion(v => v + 1)
+      await saveState(manager, playerMap)
+      toast.success('Undo successful')
+      return true
+    } catch (error) {
+      console.error('Undo failed:', error)
+      toast.error('Undo failed')
+      return false
+    }
+  }, [event?.status, playerMap, saveState])
+
+  const redo = useCallback(async () => {
+    if (event.status === 'completed') {
+      toast.error('Cannot modify completed event')
+      return false
+    }
+
+    const manager = queueManagerRef.current
+    
+    if (!manager.canRedo()) {
+      toast.info('Nothing to redo')
+      return false
+    }
+
+    try {
+      manager.redo()
+      setManagerVersion(v => v + 1)
+      await saveState(manager, playerMap)
+      toast.success('Redo successful')
+      return true
+    } catch (error) {
+      console.error('Redo failed:', error)
+      toast.error('Redo failed')
+      return false
+    }
+  }, [event?.status, playerMap, saveState])
+
+  const editMatchResult = useCallback(async (matchIndex: number, newScores: [Score, Score]) => {
+    if (event.status === 'completed') {
+      toast.error('Cannot modify completed event')
+      return
+    }
+
+    const manager = queueManagerRef.current
+    const snapshot = manager.saveState()
+
+    try {
+      manager.editMatchResult(matchIndex, newScores)
+      setManagerVersion(v => v + 1)
+      await saveState(manager, playerMap)
+      toast.success('Match result updated')
+    } catch (error) {
+      console.error('Failed to edit match result:', error)
+      manager.loadState(snapshot)
+      setManagerVersion(v => v + 1)
+      toast.error(error instanceof Error ? error.message : 'Failed to edit match result')
+      throw error
+    }
+  }, [event?.status, playerMap, saveState])
+
   return {
     queueManager: queueManagerRef.current,
     managerVersion,
@@ -288,6 +363,11 @@ export function useMatchManagement(event: Event) {
     resetQueue,
     addTeamsToQueue,
     reorderQueue,
+    undo,
+    redo,
+    canUndo: queueManagerRef.current.canUndo(),
+    canRedo: queueManagerRef.current.canRedo(),
+    editMatchResult,
     playerMap,
     loadError,
   }

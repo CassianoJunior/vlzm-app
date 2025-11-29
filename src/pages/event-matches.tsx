@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { toast } from 'sonner'
-import { X, Crown, ArrowLeft, Trophy, Users, History, PlayCircle, Plus, Minus, Wand2, Maximize2, Minimize2, Timer, ChevronUp, ChevronDown, GripVertical, UserPlus } from 'lucide-react'
+import { X, Crown, ArrowLeft, Trophy, Users, History, PlayCircle, Plus, Minus, Wand2, Maximize2, Minimize2, Timer, ChevronUp, ChevronDown, GripVertical, UserPlus, Undo2, Redo2, Pencil } from 'lucide-react'
 import { useAuth } from '@/contexts/auth-context'
 import { useEvent, useUpdateEvent, useCompletedEvents } from '@/hooks/use-events'
 import { useEventPlayers } from '@/hooks/use-event-players'
@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
 import {
   Dialog,
   DialogContent,
@@ -21,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { createTeam, type Team, type Match } from '@/utils/queue-management/queue-management'
+import { createTeam, areTeamsEqual, type Team, type Match, type MatchResult, type Score } from '@/utils/queue-management/queue-management'
 
 type Phase = 'setup' | 'preview' | 'active' | 'complete'
 
@@ -63,6 +64,7 @@ export default function EventMatches() {
   const [phase, setPhase] = useState<Phase>('setup')
   const [numCourts, setNumCourts] = useState(1)
   const [selectedTeams, setSelectedTeams] = useState<Array<{p1: string, p2: string}>>([])
+  const [isSetupLoaded, setIsSetupLoaded] = useState(false)
   const [isGenerateOpen, setIsGenerateOpen] = useState(false)
   const [generateType, setGenerateType] = useState<'MM' | 'MF' | 'FF'>('MM')
   const [fullscreenCourtId, setFullscreenCourtId] = useState<number | null>(null)
@@ -83,6 +85,11 @@ export default function EventMatches() {
     resetQueue,
     addTeamsToQueue,
     reorderQueue,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    editMatchResult,
     playerMap,
     loadError
   } = useMatchManagement(event!)
@@ -145,6 +152,37 @@ export default function EventMatches() {
       setPhase('setup')
     }
   }, [event?.matches_state, event?.status])
+
+  // Load setup state from localStorage on mount
+  useEffect(() => {
+    if (!id || phase !== 'setup' || isSetupLoaded) return
+    
+    try {
+      const saved = localStorage.getItem(`event-setup-${id}`)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (parsed.numCourts) setNumCourts(parsed.numCourts)
+        if (Array.isArray(parsed.selectedTeams)) setSelectedTeams(parsed.selectedTeams)
+      }
+    } catch (e) {
+      console.error('Failed to load setup state from localStorage', e)
+    }
+    setIsSetupLoaded(true)
+  }, [id, phase, isSetupLoaded])
+
+  // Save setup state to localStorage whenever it changes
+  useEffect(() => {
+    if (!id || phase !== 'setup' || !isSetupLoaded) return
+    
+    try {
+      localStorage.setItem(`event-setup-${id}`, JSON.stringify({
+        numCourts,
+        selectedTeams
+      }))
+    } catch (e) {
+      console.error('Failed to save setup state to localStorage', e)
+    }
+  }, [id, phase, numCourts, selectedTeams, isSetupLoaded])
 
   // Handle Escape key for fullscreen
   useEffect(() => {
@@ -331,7 +369,20 @@ export default function EventMatches() {
       }
     }
     
-    setSelectedTeams([...selectedTeams, ...newTeams])
+    // Sort new teams by check-in time (earliest first)
+    // A team's time is the LATEST of its members (when the team is complete)
+    const getCheckInTime = (pid: string) => {
+      const ep = eventPlayers?.find(ep => ep.player_id === pid)
+      return ep?.checked_in_at ? new Date(ep.checked_in_at).getTime() : Date.now()
+    }
+    
+    const sortedNewTeams = [...newTeams].sort((a, b) => {
+      const t1 = Math.max(getCheckInTime(a.p1), getCheckInTime(a.p2))
+      const t2 = Math.max(getCheckInTime(b.p1), getCheckInTime(b.p2))
+      return t1 - t2
+    })
+    
+    setSelectedTeams([...selectedTeams, ...sortedNewTeams])
     setIsGenerateOpen(false)
   }
 
@@ -361,27 +412,15 @@ export default function EventMatches() {
       usedPlayers.add(team.p2)
     }
 
-    // Sort teams by check-in time (earliest first)
-    // A team's time is the LATEST of its members (when the team is complete)
-    const getCheckInTime = (pid: string) => {
-      const ep = eventPlayers?.find(ep => ep.player_id === pid)
-      return ep?.checked_in_at ? new Date(ep.checked_in_at).getTime() : Date.now()
-    }
-
-    const sortedSelectedTeams = [...selectedTeams].sort((a, b) => {
-      const t1 = Math.max(getCheckInTime(a.p1), getCheckInTime(a.p2))
-      const t2 = Math.max(getCheckInTime(b.p1), getCheckInTime(b.p2))
-      return t1 - t2
-    })
-
     // Initialize Manager locally for preview
+    // Use selectedTeams directly to preserve user's manual ordering
     const manager = initializeManager(numCourts)
     
     // Create mapping and teams
     const playersToMap = checkedInPlayers.filter(p => usedPlayers.has(p.id))
     const newMap = ensurePlayerMapping(playersToMap)
     
-    const teams: Team[] = sortedSelectedTeams.map(t => {
+    const teams: Team[] = selectedTeams.map(t => {
       const p1Profile = checkedInPlayers.find(p => p.id === t.p1)!
       const p2Profile = checkedInPlayers.find(p => p.id === t.p2)!
       
@@ -413,6 +452,8 @@ export default function EventMatches() {
   const handleConfirmStart = async () => {
     try {
       await saveState(queueManager, playerMap)
+      // Clear setup state from localStorage after successful start
+      localStorage.removeItem(`event-setup-${id}`)
       toast.success('Queue started!')
     } catch (error) {
       // Error handled in hook
@@ -426,6 +467,15 @@ export default function EventMatches() {
     match: Match,
     s1: number,
     s2: number
+  } | null>(null)
+
+  // Edit Match Dialog State
+  const [editDialog, setEditDialog] = useState<{
+    isOpen: boolean,
+    matchIndex: number,
+    result: MatchResult,
+    score1: number,
+    score2: number
   } | null>(null)
 
   const handleSubmitScore = (courtId: number, match: Match) => {
@@ -535,6 +585,24 @@ export default function EventMatches() {
       {/* Actions */}
       {phase === 'active' && !loadError && isManager && (
         <div className="mb-6 flex justify-end gap-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={undo}
+            disabled={!canUndo || isSaving}
+            title="Undo last action"
+          >
+            <Undo2 className="h-4 w-4 mr-1" /> Undo
+          </Button>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={redo}
+            disabled={!canRedo || isSaving}
+            title="Redo last undone action"
+          >
+            <Redo2 className="h-4 w-4 mr-1" /> Redo
+          </Button>
           <Button variant="outline" size="sm" onClick={handleCompleteEvent}>
             Complete Event
           </Button>
@@ -982,11 +1050,38 @@ export default function EventMatches() {
               </CardHeader>
               <CardContent className="p-0">
                 <div className="max-h-60 overflow-y-auto">
-                  {queueManager.getMatchHistory().slice().reverse().map((result, i) => (
+                  {queueManager.getMatchHistory().slice().reverse().map((result, i) => {
+                    const actualIndex = queueManager.getMatchHistory().length - 1 - i
+                    return (
                     <div key={i} className="text-sm border-b p-3 last:border-0 hover:bg-muted/20">
                       <div className="flex justify-between text-muted-foreground text-xs mb-1">
                         <span>Match #{result.match.matchNumber} • Court {result.courtId}</span>
-                        <span>{result.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        <div className="flex items-center gap-2">
+                          <span>{result.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          {isManager && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6"
+                              onClick={() => {
+                                // Find scores for team1 and team2 by matching teams
+                                const team1Score = result.scores?.find(s => areTeamsEqual(s.team, result.match.team1))?.score || 0
+                                const team2Score = result.scores?.find(s => areTeamsEqual(s.team, result.match.team2))?.score || 0
+                                setEditDialog({
+                                  isOpen: true,
+                                  matchIndex: actualIndex,
+                                  result,
+                                  score1: team1Score,
+                                  score2: team2Score
+                                })
+                              }}
+                              disabled={isSaving}
+                              title="Edit match scores"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </Button>
+                          )}
+                        </div>
                       </div>
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex-1 text-right">
@@ -1010,7 +1105,7 @@ export default function EventMatches() {
                         </div>
                       </div>
                     </div>
-                  ))}
+                  )})}
                   {queueManager.getMatchHistory().length === 0 && (
                     <p className="text-muted-foreground text-center py-4">No matches recorded</p>
                   )}
@@ -1378,6 +1473,102 @@ export default function EventMatches() {
               disabled={!newTeamP1 || !newTeamP2 || isSaving}
             >
               {isSaving ? 'Adding...' : 'Add to Queue'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Match Result Dialog */}
+      <Dialog open={!!editDialog} onOpenChange={(open) => !open && setEditDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Match Result</DialogTitle>
+            <DialogDescription>
+              Correct the scores for this match. This is a cosmetic change only.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {editDialog && (
+            <div className="py-4 space-y-4">
+              <div className="text-center mb-4">
+                <div className="text-sm text-muted-foreground mb-1">Match #{editDialog.result.match.matchNumber}</div>
+                <div className="font-medium">
+                  {editDialog.result.match.team1.player1.name} & {editDialog.result.match.team1.player2.name}
+                  <span className="text-muted-foreground mx-2">vs</span>
+                  {editDialog.result.match.team2.player1.name} & {editDialog.result.match.team2.player2.name}
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="mb-2 block text-center">
+                    {editDialog.result.match.team1.player1.name} & {editDialog.result.match.team1.player2.name}
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={editDialog.score1}
+                    onChange={(e) => setEditDialog({ ...editDialog, score1: parseInt(e.target.value) || 0 })}
+                    className="text-center text-2xl h-14"
+                  />
+                </div>
+                <div>
+                  <Label className="mb-2 block text-center">
+                    {editDialog.result.match.team2.player1.name} & {editDialog.result.match.team2.player2.name}
+                  </Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={editDialog.score2}
+                    onChange={(e) => setEditDialog({ ...editDialog, score2: parseInt(e.target.value) || 0 })}
+                    className="text-center text-2xl h-14"
+                  />
+                </div>
+              </div>
+              
+              {editDialog.score1 === editDialog.score2 && (
+                <p className="text-sm text-destructive text-center">Scores cannot be equal</p>
+              )}
+              
+              <div className="text-center text-sm text-muted-foreground">
+                New Winner: <span className="font-bold text-foreground">
+                  {editDialog.score1 > editDialog.score2 
+                    ? `${editDialog.result.match.team1.player1.name} & ${editDialog.result.match.team1.player2.name}`
+                    : editDialog.score2 > editDialog.score1
+                    ? `${editDialog.result.match.team2.player1.name} & ${editDialog.result.match.team2.player2.name}`
+                    : 'N/A (tie)'}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setEditDialog(null)}>Cancel</Button>
+            <Button 
+              onClick={async () => {
+                if (!editDialog) return
+                if (editDialog.score1 === editDialog.score2) {
+                  toast.error('Scores cannot be equal')
+                  return
+                }
+                
+                const team1 = editDialog.result.match.team1
+                const team2 = editDialog.result.match.team2
+                const newScores: [Score, Score] = [
+                  { team: team1, score: editDialog.score1 },
+                  { team: team2, score: editDialog.score2 }
+                ]
+                
+                try {
+                  await editMatchResult(editDialog.matchIndex, newScores)
+                  setEditDialog(null)
+                } catch {
+                  // Error handled in hook
+                }
+              }} 
+              disabled={isSaving || (editDialog?.score1 === editDialog?.score2)}
+            >
+              {isSaving ? 'Saving...' : 'Save Changes'}
             </Button>
           </DialogFooter>
         </DialogContent>
