@@ -1,7 +1,15 @@
 import { Link, useLocation } from 'react-router-dom'
-import { Calendar, Plus, LogOut } from 'lucide-react'
+import { Calendar, Plus, LogOut, Users } from 'lucide-react'
 import { useAuth } from '@/contexts/auth-context'
 import logo from '@/assets/vlzm-logo.png'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
+import { Badge } from './ui/badge'
 
 interface LayoutProps {
   children: React.ReactNode
@@ -21,7 +29,10 @@ export default function Layout({ children }: LayoutProps) {
 
   const navItems = [
     { path: '/events', label: 'Events', icon: Calendar },
-    ...(isManager ? [{ path: '/events/create', label: 'Create', icon: Plus }] : []),
+    ...(isManager ? [
+      { path: '/events/create', label: 'Create', icon: Plus },
+      { path: '/players', label: 'Players', icon: Users },
+    ] : []),
   ]
 
   return (
@@ -37,22 +48,30 @@ export default function Layout({ children }: LayoutProps) {
             <div className="flex items-center gap-4">
               {profile && (
                 <div className="flex items-center gap-2">
-                  <span className="hidden sm:inline text-sm text-muted-foreground">
-                    {profile.surname}
-                  </span>
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                    isManager ? 'bg-secondary text-secondary-foreground' : 'bg-primary/10 text-primary'
-                  }`}>
+                  <Badge className={`px-2 py-0.5 rounded-full text-xs font-medium ${isManager ? 'bg-secondary text-secondary-foreground' : 'bg-primary/10 text-primary'}`}>
                     {profile.role}
-                  </span>
+                  </Badge>
+                  
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-accent/50 focus:outline-none focus:ring-2 focus:ring-offset-2">
+                        <div className="h-8 w-8 flex items-center justify-center rounded-full bg-primary text-primary-foreground font-medium">{profile.surname?.[0]?.toUpperCase() || 'U'}</div>
+                        <div className="hidden sm:flex flex-col leading-none">
+                          <span className="text-sm text-foreground">{profile.surname}</span>
+                        </div>
+                      </button>
+                    </DropdownMenuTrigger>
+
+                    <DropdownMenuContent sideOffset={8} align="end">
+                      <DropdownMenuItem>
+                        <Link to="/profile" className="w-full">My Profile</Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={handleSignOut}>Sign Out</DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </div>
               )}
-              <button
-                onClick={handleSignOut}
-                className="text-sm text-muted-foreground hover:text-foreground"
-              >
-                Sign Out
-              </button>
             </div>
           </div>
         </div>

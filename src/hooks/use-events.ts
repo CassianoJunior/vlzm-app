@@ -2,17 +2,21 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 import type { Event, InsertEvent, UpdateEvent } from '@/types/database'
 
-export function useEvents() {
+export function useEvents(page: number = 1, perPage: number = 12) {
   return useQuery({
-    queryKey: ['events'],
+    queryKey: ['events', page, perPage],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const start = (page - 1) * perPage
+      const end = page * perPage - 1
+
+      const { data, error, count } = await supabase
         .from('events')
-        .select()
+        .select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
+        .range(start, end)
 
       if (error) throw error
-      return data as Event[]
+      return { items: data as Event[] ?? [], total: count ?? 0 }
     },
   })
 }

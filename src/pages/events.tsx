@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Calendar, Clock, BarChart3, Swords, Plus } from 'lucide-react'
 import { useAuth } from '@/contexts/auth-context'
@@ -17,7 +18,11 @@ const statusVariants: Record<EventStatus, "default" | "secondary" | "destructive
 
 export default function Events() {
   const { isManager } = useAuth()
-  const { data: events, isLoading, error } = useEvents()
+  const [page, setPage] = useState(1)
+  const perPage = 12
+  const { data: paged, isLoading, error } = useEvents(page, perPage)
+  const events = paged?.items ?? []
+  const total = paged?.total ?? 0
   const deleteEvent = useDeleteEvent()
   const updateEvent = useUpdateEvent()
 
@@ -136,6 +141,25 @@ export default function Events() {
                 </CardFooter>
               </Card>
             ))}
+          </div>
+          <div className="flex items-center justify-center gap-4 mt-6">
+            <Button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="min-h-11"
+            >
+              Prev
+            </Button>
+            <div className="text-sm text-muted-foreground">
+              Page {page} of {Math.max(1, Math.ceil(total / perPage))}
+            </div>
+            <Button
+              onClick={() => setPage((p) => p + 1)}
+              disabled={page >= Math.ceil(total / perPage)}
+              className="min-h-11"
+            >
+              Next
+            </Button>
           </div>
         </>
       )}

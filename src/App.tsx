@@ -13,6 +13,8 @@ import CreateEvent from '@/pages/create-event'
 import UpdateEvent from '@/pages/update-event'
 import EventCheckIn from '@/pages/event-check-in'
 import EventMatches from '@/pages/event-matches'
+import Players from '@/pages/players'
+import Profile from '@/pages/profile'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -40,11 +42,13 @@ function App() {
               <Route path="/events" element={<Events />} />
               <Route path="/events/:eventId/check-in" element={<EventCheckIn />} />
               <Route path="/events/:eventId/matches" element={<EventMatches />} />
+              <Route path="/profile" element={<Profile />} />
               
               {/* Manager-only routes */}
               <Route element={<ManagerRoute />}>
                 <Route path="/events/create" element={<CreateEvent />} />
                 <Route path="/events/:eventId/edit" element={<UpdateEvent />} />
+                <Route path="/players" element={<Players />} />
               </Route>
             </Route>
 

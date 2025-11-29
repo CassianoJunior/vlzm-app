@@ -10,7 +10,7 @@ import {
   useManagerCheckIn,
   useManagerCheckOut,
 } from '@/hooks/use-event-players'
-import { usePlayers } from '@/hooks/use-players'
+import { useAllPlayers } from '@/hooks/use-players'
 import { formatDate, formatTime } from '@/lib/utils'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -23,7 +23,7 @@ export default function EventCheckIn() {
   const { user, profile, isManager } = useAuth()
   const { data: event, isLoading: isLoadingEvent } = useEvent(eventId)
   const { data: eventPlayers, isLoading: isLoadingPlayers } = useEventPlayers(eventId)
-  const { data: allPlayers } = usePlayers()
+  const { data: allPlayers } = useAllPlayers()
   const { data: playerStatus } = usePlayerCheckInStatus(eventId, user?.id)
   const checkIn = useCheckIn()
   const checkOut = useCheckOut()
