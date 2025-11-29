@@ -227,7 +227,7 @@ export default function EventCheckIn() {
                   <SelectTrigger className="flex-1 sm:w-48">
                     <SelectValue placeholder="Select player..." />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className='max-h-60'>
                     {availablePlayers.map(p => (
                       <SelectItem key={p.id} value={p.id}>
                         {p.surname}
