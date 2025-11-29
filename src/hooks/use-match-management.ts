@@ -8,6 +8,7 @@ import type { Event, Profile } from '@/types/database'
 export interface MatchManagementState {
   playerMap: Record<string, number>
   queueState: string
+  queueLocked?: boolean
 }
 
 export function useMatchManagement(event: Event) {
@@ -53,6 +54,7 @@ export function useMatchManagement(event: Event) {
   const [managerVersion, setManagerVersion] = useState(0) // To force re-renders
   const [isSaving, setIsSaving] = useState(false)
   const [playerMap, setPlayerMap] = useState<Record<string, number>>({})
+  const [queueLocked, setQueueLocked] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
 
   // Initialize QueueManager from event state
@@ -63,6 +65,7 @@ export function useMatchManagement(event: Event) {
         if (state.playerMap) {
           setPlayerMap(state.playerMap)
         }
+        setQueueLocked(state.queueLocked ?? false)
         
         if (state.queueState) {
            const parsed = JSON.parse(state.queueState)
@@ -124,7 +127,8 @@ export function useMatchManagement(event: Event) {
 
   const saveState = useCallback(async (
     manager: QueueManager, 
-    currentPlayerMap: Record<string, number>
+    currentPlayerMap: Record<string, number>,
+    locked?: boolean
   ) => {
     if (event.status === 'completed') {
       toast.error('Cannot modify completed event')
@@ -134,7 +138,8 @@ export function useMatchManagement(event: Event) {
     const queueState = manager.saveState()
     const newState: MatchManagementState = {
       playerMap: currentPlayerMap,
-      queueState
+      queueState,
+      queueLocked: locked ?? queueLocked
     }
 
     setIsSaving(true)
@@ -257,6 +262,11 @@ export function useMatchManagement(event: Event) {
       return
     }
 
+    if (queueLocked) {
+      toast.error('Queue is locked')
+      return
+    }
+
     const manager = queueManagerRef.current
     const snapshot = manager.saveState()
 
@@ -272,7 +282,28 @@ export function useMatchManagement(event: Event) {
       toast.error(error instanceof Error ? error.message : 'Failed to reorder queue')
       throw error
     }
-  }, [event?.status, playerMap, saveState])
+  }, [event?.status, playerMap, saveState, queueLocked])
+
+  const toggleQueueLock = useCallback(async () => {
+    if (event.status === 'completed') {
+      toast.error('Cannot modify completed event')
+      return
+    }
+
+    const newLocked = !queueLocked
+    setQueueLocked(newLocked)
+    setIsSaving(true)
+
+    try {
+      await saveState(queueManagerRef.current, playerMap, newLocked)
+      toast.success(newLocked ? 'Queue locked' : 'Queue unlocked')
+    } catch (error) {
+      setQueueLocked(!newLocked) // Rollback
+      console.error('Failed to toggle queue lock:', error)
+    } finally {
+      setIsSaving(false)
+    }
+  }, [event?.status, queueLocked, playerMap, saveState])
 
   const undo = useCallback(async () => {
     if (event.status === 'completed') {
@@ -370,5 +401,7 @@ export function useMatchManagement(event: Event) {
     editMatchResult,
     playerMap,
     loadError,
+    queueLocked,
+    toggleQueueLock,
   }
 }

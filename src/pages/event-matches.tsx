@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { toast } from 'sonner'
-import { X, Crown, ArrowLeft, Trophy, Users, History, PlayCircle, Plus, Minus, Wand2, Maximize2, Minimize2, Timer, ChevronUp, ChevronDown, GripVertical, UserPlus, Undo2, Redo2, Pencil } from 'lucide-react'
+import { X, Crown, ArrowLeft, Trophy, Users, History, PlayCircle, Plus, Minus, Wand2, Maximize2, Minimize2, Timer, ChevronUp, ChevronDown, GripVertical, UserPlus, Undo2, Redo2, Pencil, Lock, Unlock, MoreVertical } from 'lucide-react'
 import { useAuth } from '@/contexts/auth-context'
 import { useEvent, useUpdateEvent, useCompletedEvents } from '@/hooks/use-events'
 import { useEventPlayers } from '@/hooks/use-event-players'
@@ -14,6 +14,12 @@ import { Badge } from '@/components/ui/badge'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   Dialog,
   DialogContent,
@@ -91,7 +97,9 @@ export default function EventMatches() {
     canRedo,
     editMatchResult,
     playerMap,
-    loadError
+    loadError,
+    queueLocked,
+    toggleQueueLock
   } = useMatchManagement(event!)
 
   // Derived state
@@ -936,20 +944,28 @@ export default function EventMatches() {
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-lg font-semibold flex items-center gap-2">
                   <Users className="h-5 w-5 text-primary" /> Queue
+                  {queueLocked && <Lock className="h-4 w-4 text-muted-foreground" />}
                 </CardTitle>
                 <div className="flex items-center gap-2">
+                  <Badge variant="outline">{queueManager.getCurrentState().queue.length} waiting</Badge>
                   {isManager && (
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={() => setIsAddTeamOpen(true)}
-                      disabled={isSaving}
-                      className="gap-1"
-                    >
-                      <UserPlus className="h-4 w-4" /> Add Team
-                    </Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-9 w-9" disabled={isSaving}>
+                          <MoreVertical className="h-5 w-5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={toggleQueueLock}>
+                          {queueLocked ? <Unlock className="h-4 w-4 mr-2" /> : <Lock className="h-4 w-4 mr-2" />}
+                          {queueLocked ? 'Unlock Reordering' : 'Lock Reordering'}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setIsAddTeamOpen(true)}>
+                          <UserPlus className="h-4 w-4 mr-2" /> Add Team
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   )}
-                  <Badge variant="outline">{queueManager.getCurrentState().queue.length} teams waiting</Badge>
                 </div>
               </CardHeader>
               <CardContent>
@@ -964,7 +980,7 @@ export default function EventMatches() {
                         key={`${team.player1.id}-${team.player2.id}`} 
                         className="flex items-center gap-2 bg-muted/30 p-3 rounded-lg border"
                       >
-                        {isManager && (
+                        {isManager && !queueLocked && (
                           <div className="flex flex-col gap-0.5">
                             <Button
                               variant="ghost"
